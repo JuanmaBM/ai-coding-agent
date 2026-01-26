@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent-worker
+  namespace: ai-agent
+  labels:
+    app.kubernetes.io/name: ai-coding-agent
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  replicas: 0  # KEDA will manage replicas
+  selector:
+    matchLabels:
+      app: ai-agent-worker
+  template:
+    metadata:
+      labels:
+        app: ai-agent-worker
+        app.kubernetes.io/name: ai-coding-agent
+        app.kubernetes.io/component: worker
+    spec:
+      containers:
+      - name: worker
+        image: ai-agent-worker:latest  # Will be built locally for Minikube
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: ai-agent-config
+        env:
+        - name: RABBITMQ_USER
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-credentials
+              key: username
+        - name: RABBITMQ_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-credentials
+              key: password
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: workspace
+          mountPath: /tmp/workspace
+      volumes:
+      - name: workspace
+        emptyDir:
+          sizeLimit: 5Gi  # Limit temporary storage
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+

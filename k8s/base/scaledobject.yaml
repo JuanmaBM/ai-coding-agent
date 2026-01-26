@@ -1,0 +1,26 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: ai-agent-worker-scaler
+  namespace: ai-agent
+  labels:
+    app.kubernetes.io/name: ai-coding-agent
+    app.kubernetes.io/component: scaler
+spec:
+  scaleTargetRef:
+    name: ai-agent-worker
+  minReplicaCount: 0       # Scale to zero when queue is empty
+  maxReplicaCount: 10      # Maximum number of worker pods
+  pollingInterval: 10      # Check queue every 10 seconds
+  cooldownPeriod: 30       # Wait 30s after last trigger before scaling down
+  triggers:
+  - type: rabbitmq
+    metadata:
+      protocol: amqp
+      queueName: agent-tasks
+      mode: QueueLength
+      value: "1"           # One pod per message in queue
+      activationValue: "0" # Scale to 0 when no messages
+    authenticationRef:
+      name: keda-rabbitmq-auth
+

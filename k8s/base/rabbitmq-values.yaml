@@ -1,0 +1,42 @@
+# Helm values for RabbitMQ deployment
+# Deploy with: helm install rabbitmq oci://registry-1.docker.io/bitnami/rabbitmq -f rabbitmq-values.yaml -n ai-agent
+
+auth:
+  username: admin
+  # Password will be auto-generated or set via --set auth.password=<password>
+  existingPasswordSecret: ""  # Can reference a k8s secret instead
+
+persistence:
+  enabled: true
+  size: 8Gi
+  storageClass: ""  # Use default storage class
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+service:
+  type: ClusterIP
+  ports:
+    amqp: 5672
+    manager: 15672
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false  # Enable if Prometheus operator is available
+
+extraConfiguration: |-
+  # Create the agent-tasks queue on startup
+  default_vhost = /
+  default_user = admin
+  default_permissions.configure = .*
+  default_permissions.read = .*
+  default_permissions.write = .*
+
+communityPlugins: "rabbitmq_delayed_message_exchange"
+
