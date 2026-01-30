@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     git_clone_depth: int = 1
     workspace_dir: str = "/tmp/workspace"
     
+    # GitHub Configuration
+    github_token: str = ""
+    
+    # LLM Configuration
+    llm_provider: str = "ollama"
+    llm_model: str = "qwen2.5-coder:1.5b"
+    ollama_base_url: str = "http://localhost:11434"
+    
     @property
     def rabbitmq_url(self) -> str:
         """Construct RabbitMQ connection URL."""

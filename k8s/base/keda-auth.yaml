@@ -7,7 +7,7 @@ type: Opaque
 stringData:
   # These values should match your RabbitMQ deployment
   # Update with actual values after RabbitMQ deployment
-  host: "amqp://admin:CHANGEME@rabbitmq.ai-agent.svc.cluster.local:5672/"
+  host: "amqp://admin:DevPassword123@rabbitmq.ai-agent.svc.cluster.local:5672/"
 ---
 apiVersion: keda.sh/v1alpha1
 kind: TriggerAuthentication

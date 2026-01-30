@@ -9,6 +9,7 @@ WORKDIR /build
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     gcc \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install dependencies
@@ -20,6 +21,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install runtime dependencies (git is needed for GitPython)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy Python dependencies from builder
 COPY --from=builder /root/.local /root/.local
 
@@ -27,9 +34,7 @@ COPY --from=builder /root/.local /root/.local
 ENV PATH=/root/.local/bin:$PATH
 
 # Copy application code
-COPY main.py .
-COPY config.py .
-COPY models.py .
+COPY *.py .
 COPY modes/ ./modes/
 
 # Create workspace directory

@@ -1,23 +1,18 @@
 # Quick Start Guide
 
-Get the AI Coding Agent running in less than 10 minutes!
+Get the AI Coding Agent (Iterations 1 & 2) running in less than 10 minutes!
 
 ## Prerequisites
 
-Ensure you have these tools installed:
-- [Minikube](https://minikube.sigs.k8s.io/docs/start/) (v1.32+)
-- [kubectl](https://kubernetes.io/docs/tasks/tools/)
-- [Helm](https://helm.sh/docs/intro/install/) (v3.0+)
-- [Docker](https://docs.docker.com/get-docker/)
-- [Python 3.11+](https://www.python.org/downloads/)
-- [Make](https://www.gnu.org/software/make/) (optional, for convenience)
+- Minikube installed
+- kubectl configured  
+- Helm 3.x installed
+- Docker or Podman
 
 ## Quick Deploy with Makefile
 
-If you have `make` installed, you can deploy everything with a single command:
-
 ```bash
-# Full automated setup (Iterations 1 & 2)
+# Full automated setup
 make all
 
 # Test the deployment
@@ -25,32 +20,29 @@ make test
 
 # Watch logs
 make logs
+
+# Cleanup
+make clean
 ```
 
 ## Manual Deployment
 
-### Step 1: Start Minikube
+### 1. Start Minikube
 
 ```bash
 minikube start --cpus 2 --memory 4096
 minikube addons enable metrics-server ingress
 ```
 
-### Step 2: Point Docker to Minikube
+### 2. Build Worker Image
 
 ```bash
 eval $(minikube docker-env)
-```
-
-### Step 3: Build Worker Image
-
-```bash
-cd worker
-docker build -t ai-agent-worker:latest .
+cd worker && docker build -t ai-agent-worker:latest .
 cd ..
 ```
 
-### Step 4: Deploy Infrastructure
+### 3. Deploy Infrastructure
 
 ```bash
 # Add Helm repos
@@ -72,22 +64,20 @@ helm install rabbitmq bitnami/rabbitmq \
 helm install keda kedacore/keda --namespace keda --create-namespace --wait
 ```
 
-### Step 5: Configure Secrets
+### 4. Configure Secrets
 
 ```bash
-# RabbitMQ credentials
 kubectl create secret generic rabbitmq-credentials \
   --from-literal=username=admin \
   --from-literal=password=DevPassword123 \
   -n ai-agent
 
-# KEDA authentication
 kubectl create secret generic keda-rabbitmq-secret \
   --from-literal=host="amqp://admin:DevPassword123@rabbitmq.ai-agent.svc.cluster.local:5672/" \
   -n ai-agent
 ```
 
-### Step 6: Deploy Worker
+### 5. Deploy Worker
 
 ```bash
 kubectl apply -f k8s/base/keda-auth.yaml
@@ -96,17 +86,14 @@ kubectl apply -f k8s/base/deployment.yaml
 kubectl apply -f k8s/base/scaledobject.yaml
 ```
 
-### Step 7: Verify Deployment
+### 6. Verify
 
 ```bash
-# Check all pods are running (RabbitMQ should be running, worker at 0 replicas)
 kubectl get pods -n ai-agent
-
-# Check KEDA is installed
-kubectl get pods -n keda
+kubectl get scaledobject -n ai-agent
 ```
 
-## Testing the Setup
+## Test the Setup
 
 ### Publish Test Messages
 
@@ -114,24 +101,23 @@ kubectl get pods -n keda
 # Port-forward RabbitMQ
 kubectl port-forward -n ai-agent svc/rabbitmq 5672:5672 &
 
-# Install dependencies and run test script
+# Run test script
 cd scripts
 pip install -r requirements.txt
 python test-queue.py --count 5 --delay 2
 ```
 
-### Watch Auto-Scaling in Action
-
-In another terminal:
+### Watch Auto-Scaling
 
 ```bash
+# In another terminal
 kubectl get pods -n ai-agent -w
 ```
 
 You should see:
-1. Worker pods scaling from 0→5 (one per message)
-2. Pods processing messages (check logs)
-3. Pods scaling back to 0 after ~30 seconds of inactivity
+1. Worker pods scaling from 0→5
+2. Pods processing messages
+3. Pods scaling back to 0 after ~30 seconds
 
 ### View Worker Logs
 
@@ -139,7 +125,7 @@ You should see:
 kubectl logs -n ai-agent -l app=ai-agent-worker -f
 ```
 
-Expected output:
+Expected output (JSON logs):
 ```json
 {"event": "task_received", "repo_url": "https://github.com/example/test-repo", ...}
 {"event": "processing", "msg": "Analyzing repository..."}
@@ -152,40 +138,31 @@ Expected output:
 kubectl port-forward -n ai-agent svc/rabbitmq 15672:15672
 ```
 
-Open http://localhost:15672 in your browser:
+Open http://localhost:15672
 - Username: `admin`
 - Password: `DevPassword123`
 
 ## Troubleshooting
 
-### Pods not scaling
+### Pods Not Scaling
 
 ```bash
-# Check ScaledObject status
 kubectl describe scaledobject ai-agent-worker-scaler -n ai-agent
-
-# Check KEDA operator logs
 kubectl logs -n keda -l app=keda-operator
 ```
 
-### Worker failing to start
+### Worker Failing
 
 ```bash
-# Check deployment
 kubectl describe deployment ai-agent-worker -n ai-agent
-
-# Check logs
 kubectl logs -n ai-agent -l app=ai-agent-worker
 ```
 
-### RabbitMQ connection issues
+### RabbitMQ Issues
 
 ```bash
-# Verify RabbitMQ is running
 kubectl get pods -n ai-agent -l app.kubernetes.io/name=rabbitmq
-
-# Check service
-kubectl get svc -n ai-agent rabbitmq
+kubectl logs -n ai-agent -l app.kubernetes.io/name=rabbitmq
 ```
 
 ## Cleanup
@@ -197,6 +174,42 @@ make clean
 # Or manually
 helm uninstall rabbitmq -n ai-agent
 helm uninstall keda -n keda
-kubectl delete namespace ai-agent
-kubectl delete namespace keda
+kubectl delete namespace ai-agent keda
+minikube stop
+```
+
+## What's Deployed?
+
+✅ **Iteration 1: Infrastructure**
+- RabbitMQ message broker
+- KEDA autoscaler  
+- Kubernetes namespace and configs
+
+✅ **Iteration 2: Hello World Worker**
+- Python worker with FastStream
+- Auto-scales 0→N based on queue
+- Logs task processing (JSON format)
+
+## Next Steps
+
+See [README.md](README.md) for the full technical design and roadmap.
+
+## Useful Commands
+
+```bash
+# View all resources
+kubectl get all -n ai-agent
+
+# Restart worker
+kubectl rollout restart deployment/ai-agent-worker -n ai-agent
+
+# Scale manually
+kubectl scale deployment ai-agent-worker -n ai-agent --replicas=3
+
+# Check KEDA metrics
+kubectl get hpa -n ai-agent
+
+# Delete and redeploy worker
+kubectl delete deployment ai-agent-worker -n ai-agent
+kubectl apply -f k8s/base/deployment.yaml
 ```

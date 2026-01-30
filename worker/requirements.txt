@@ -1,9 +1,9 @@
 # FastStream for RabbitMQ integration
-faststream[rabbit]==0.5.0
+faststream[rabbit]==0.5.33
 
-# Data validation and settings
-pydantic==2.5.3
-pydantic-settings==2.1.0
+# Data validation and settings (compatible versions)
+pydantic==2.10.5
+pydantic-settings==2.7.0
 
 # Structured logging
 structlog==24.1.0
@@ -11,6 +11,12 @@ structlog==24.1.0
 # Environment variables
 python-dotenv==1.0.0
 
-# HTTP client (for future API calls)
-httpx==0.26.0
+# LangChain for LLM integration
+langchain-ollama==0.2.2
+langchain-core==0.3.29
 
+# Git operations
+GitPython==3.1.40
+
+# GitHub API
+PyGithub==2.1.1

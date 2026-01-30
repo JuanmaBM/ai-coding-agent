@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: ai-agent
+  labels:
+    app.kubernetes.io/name: ai-coding-agent
+    app.kubernetes.io/component: llm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+      - name: ollama
+        image: ollama/ollama:latest
+        ports:
+        - containerPort: 11434
+          name: http
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+      volumes:
+      - name: ollama-data
+        emptyDir:
+          sizeLimit: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: ai-agent
+spec:
+  selector:
+    app: ollama
+  ports:
+  - port: 11434
+    targetPort: 11434
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-pull-model
+  namespace: ai-agent
+spec:
+  template:
+    spec:
+      containers:
+      - name: pull-model
+        image: curlimages/curl:latest
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for Ollama to be ready..."
+          sleep 30
+          echo "Pulling qwen2.5-coder:1.5b model (lightweight)..."
+          curl -X POST http://ollama.ai-agent.svc.cluster.local:11434/api/pull \
+            -d '{"name": "qwen2.5-coder:1.5b"}'
+          echo "Model pulled successfully"
+      restartPolicy: OnFailure
+  backoffLimit: 3
+

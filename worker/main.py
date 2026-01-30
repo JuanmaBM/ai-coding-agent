@@ -1,37 +1,43 @@
-"""AI Agent Worker - Hello World Implementation (Iteration 2)."""
+"""AI Agent Worker - With Git & LLM Integration (Iteration 3)."""
 
 import asyncio
 import structlog
 from faststream import FastStream
-from faststream.rabbit import RabbitBroker
+from faststream.rabbit import RabbitBroker, RabbitQueue
+from pydantic import BaseModel
 
 from config import settings
-from models import TaskMessage
+from models import TaskMessage, TaskMode
 
 # Configure structured logging
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer()
+        structlog.processors.JSONRenderer(),
     ]
 )
 
 logger = structlog.get_logger()
 
-# Initialize RabbitMQ broker
-broker = RabbitBroker(settings.rabbitmq_url)
+# Initialize RabbitMQ broker with graceful timeout
+broker = RabbitBroker(
+    settings.rabbitmq_url,
+    graceful_timeout=900.0,  # 15 minutes
+)
 app = FastStream(broker)
 
+# Declare queue as durable to match existing queue
+queue = RabbitQueue(name=settings.rabbitmq_queue, durable=True)
 
-@broker.subscriber(settings.rabbitmq_queue)
+
+@broker.subscriber(queue)
 async def process_task(message: TaskMessage) -> None:
     """
     Process incoming tasks from RabbitMQ queue.
-    
-    This is the "Hello World" implementation for Iteration 2.
-    It simply logs the message details and simulates processing.
-    
+
+    Routes tasks to appropriate mode handler.
+
     Args:
         message: Task message containing repo_url, issue_id, mode, and trigger_user
     """
@@ -39,38 +45,37 @@ async def process_task(message: TaskMessage) -> None:
         repo_url=str(message.repo_url),
         issue_id=message.issue_id,
         mode=message.mode.value,
-        trigger_user=message.trigger_user
+        trigger_user=message.trigger_user,
     )
-    
+
     log.info("task_received", msg="Starting task processing")
-    
+
     try:
-        # Simulate task processing
-        log.info("processing", msg="Analyzing repository...")
-        await asyncio.sleep(1)
-        
-        log.info("processing", msg="Generating solution...")
-        await asyncio.sleep(1)
-        
-        log.info("processing", msg="Preparing output...")
-        await asyncio.sleep(1)
-        
-        log.info(
-            "task_completed",
-            msg="Task processed successfully",
-            duration_seconds=3
-        )
-        
-        # Message is automatically ACK'd if no exception is raised
-        
+        # Route to appropriate mode
+        if message.mode == TaskMode.PLAN:
+            from modes.plan_mode import PlanMode
+
+            plan_mode = PlanMode()
+            await plan_mode.execute(message)
+
+        elif message.mode == TaskMode.QUICKFIX:
+            log.warning("mode_not_implemented", msg="QuickFix mode not yet implemented")
+
+        elif message.mode == TaskMode.PLAN_APPROVAL:
+            log.warning(
+                "mode_not_implemented", msg="Plan approval mode not yet implemented"
+            )
+
+        else:
+            log.error("unknown_mode", msg="Unknown task mode", mode=message.mode)
+            raise ValueError(f"Unknown mode: {message.mode}")
+
+        log.info("task_completed", msg="Task processed successfully")
+
     except Exception as e:
         log.error(
-            "task_failed",
-            msg="Task processing failed",
-            error=str(e),
-            exc_info=True
+            "task_failed", msg="Task processing failed", error=str(e), exc_info=True
         )
-        # Re-raise to trigger NACK and requeue
         raise
 
 
@@ -82,7 +87,7 @@ async def on_startup():
         msg="AI Agent Worker starting",
         rabbitmq_host=settings.rabbitmq_host,
         queue=settings.rabbitmq_queue,
-        log_level=settings.log_level
+        log_level=settings.log_level,
     )
 
 
@@ -93,6 +98,4 @@ async def on_shutdown():
 
 
 if __name__ == "__main__":
-    # Run the FastStream application
-    app.run()
-
+    asyncio.run(app.run())

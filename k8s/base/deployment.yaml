@@ -21,8 +21,8 @@ spec:
     spec:
       containers:
       - name: worker
-        image: ai-agent-worker:latest  # Will be built locally for Minikube
-        imagePullPolicy: IfNotPresent
+        image: localhost/ai-agent-worker:0.1
+        imagePullPolicy: Never
         envFrom:
         - configMapRef:
             name: ai-agent-config
@@ -37,6 +37,11 @@ spec:
             secretKeyRef:
               name: rabbitmq-credentials
               key: password
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: github-credentials
+              key: token
         resources:
           requests:
             memory: "512Mi"
@@ -52,5 +57,5 @@ spec:
         emptyDir:
           sizeLimit: 5Gi  # Limit temporary storage
       restartPolicy: Always
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 1800  # 30 minutes for long-running tasks
 

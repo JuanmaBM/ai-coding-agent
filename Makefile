@@ -1,92 +1,58 @@
-.PHONY: help setup build deploy test clean
+.PHONY: help install uninstall test logs status rebuild verify
 
 help:
+	@echo "AI Coding Agent - Makefile"
+	@echo ""
 	@echo "Available targets:"
-	@echo "  setup      - Initialize Minikube and install dependencies"
-	@echo "  build      - Build worker Docker image"
-	@echo "  deploy     - Deploy all Kubernetes resources"
-	@echo "  test       - Run end-to-end tests"
+	@echo "  install    - Install everything (Minikube + all components)"
+	@echo "  uninstall  - Remove all components"
+	@echo "  rebuild    - Rebuild and redeploy worker"
+	@echo "  verify     - Verify worker image in Minikube"
+	@echo "  test       - Setup for testing"
 	@echo "  logs       - Stream worker logs"
-	@echo "  clean      - Remove all deployed resources"
+	@echo "  status     - Show deployment status"
 
-# Setup Minikube and install dependencies
-setup:
-	@echo "🚀 Starting Minikube..."
-	minikube start --cpus 2 --memory 4096 --driver=docker
-	minikube addons enable metrics-server
-	minikube addons enable ingress
-	@echo "📦 Installing Helm charts..."
-	helm repo add bitnami https://charts.bitnami.com/bitnami
-	helm repo add kedacore https://kedacore.github.io/charts
-	helm repo update
-	@echo "✅ Setup complete!"
+install:
+	@chmod +x install.sh
+	@./install.sh
 
-# Build worker image
-build:
-	@echo "🏗️  Building worker Docker image..."
-	eval $$(minikube docker-env) && \
-	cd worker && \
-	docker build -t ai-agent-worker:latest .
-	@echo "✅ Build complete!"
+uninstall:
+	@chmod +x uninstall.sh
+	@./uninstall.sh
 
-# Deploy all resources
-deploy:
-	@echo "🚀 Deploying AI Coding Agent..."
-	kubectl apply -f k8s/base/namespace.yaml
-	@echo "Waiting for namespace..."
-	kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/ai-agent --timeout=30s || true
-	@echo "Installing RabbitMQ..."
-	helm install rabbitmq bitnami/rabbitmq \
-		-f k8s/base/rabbitmq-values.yaml \
-		-n ai-agent \
-		--set auth.password=DevPassword123 \
-		--wait --timeout=5m || helm upgrade rabbitmq bitnami/rabbitmq \
-		-f k8s/base/rabbitmq-values.yaml \
-		-n ai-agent \
-		--wait --timeout=5m
-	@echo "Creating secrets..."
-	kubectl create secret generic rabbitmq-credentials \
-		--from-literal=username=admin \
-		--from-literal=password=DevPassword123 \
-		-n ai-agent --dry-run=client -o yaml | kubectl apply -f -
-	kubectl create secret generic keda-rabbitmq-secret \
-		--from-literal=host="amqp://admin:DevPassword123@rabbitmq.ai-agent.svc.cluster.local:5672/" \
-		-n ai-agent --dry-run=client -o yaml | kubectl apply -f -
-	@echo "Installing KEDA..."
-	helm install keda kedacore/keda --namespace keda --create-namespace --wait || \
-		helm upgrade keda kedacore/keda --namespace keda --wait
-	@echo "Applying configurations..."
-	kubectl apply -f k8s/base/keda-auth.yaml
-	kubectl apply -f k8s/base/configmap.yaml
-	kubectl apply -f k8s/base/deployment.yaml
-	kubectl apply -f k8s/base/scaledobject.yaml
-	@echo "✅ Deployment complete!"
-	@echo "📊 Check status with: kubectl get pods -n ai-agent -w"
+rebuild:
+	@echo "🏗️  Rebuilding worker image..."
+	@eval $$(minikube docker-env) && cd worker && docker build -t ai-agent-worker:latest .
+	@echo "🔍 Verifying image..."
+	@eval $$(minikube docker-env) && docker images | grep ai-agent-worker
+	@echo "🔄 Restarting deployment..."
+	@kubectl rollout restart deployment/ai-agent-worker -n ai-agent
+	@kubectl rollout status deployment/ai-agent-worker -n ai-agent --timeout=60s
+	@echo "✅ Worker rebuilt and restarted"
 
-# Test the setup
 test:
-	@echo "🧪 Running tests..."
-	@echo "Setting up port-forward in background..."
-	kubectl port-forward -n ai-agent svc/rabbitmq 5672:5672 & sleep 3
-	cd scripts && pip install -q -r requirements.txt && \
-		python test-queue.py --count 3 --delay 1
-	@echo "📊 Monitor scaling with: kubectl get pods -n ai-agent -w"
+	@echo "Setting up port-forward..."
+	@kubectl port-forward -n ai-agent svc/rabbitmq 5672:5672 >/dev/null 2>&1 &
+	@sleep 2
+	@echo "Run test with:"
+	@echo "  cd scripts && python test-iteration3.py --repo-url https://github.com/user/repo --issue-id 1"
 
-# Stream logs
 logs:
-	kubectl logs -n ai-agent -l app=ai-agent-worker --tail=100 -f
+	@kubectl logs -f -n ai-agent -l app=ai-agent-worker
 
-# Clean up everything
-clean:
-	@echo "🧹 Cleaning up resources..."
-	-helm uninstall rabbitmq -n ai-agent
-	-helm uninstall keda -n keda
-	-kubectl delete namespace ai-agent
-	-kubectl delete namespace keda
-	@echo "✅ Cleanup complete!"
+verify:
+	@chmod +x scripts/verify-image.sh
+	@./scripts/verify-image.sh
 
-# One-command full setup
-all: setup build deploy
-	@echo "🎉 Full setup complete!"
-	@echo "Run 'make test' to validate the deployment"
-
+status:
+	@echo "=== Pods ==="
+	@kubectl get pods -n ai-agent
+	@echo ""
+	@echo "=== Services ==="
+	@kubectl get svc -n ai-agent
+	@echo ""
+	@echo "=== ScaledObject ==="
+	@kubectl get scaledobject -n ai-agent
+	@echo ""
+	@echo "=== Secrets ==="
+	@kubectl get secrets -n ai-agent
