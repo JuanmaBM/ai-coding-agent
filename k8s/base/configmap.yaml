@@ -12,10 +12,10 @@ data:
   RABBITMQ_PORT: "5672"
   RABBITMQ_VHOST: "/"
   RABBITMQ_QUEUE: "agent-tasks"
+  RABBITMQ_GRACEFUL_TIMEOUT: "300"
   
   # Worker Configuration
   LOG_LEVEL: "INFO"
-  WORKER_TIMEOUT: "900"  # 15 minutes max per task
   
   # Git Configuration
   GIT_CLONE_DEPTH: "1"

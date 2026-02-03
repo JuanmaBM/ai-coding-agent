@@ -4,9 +4,12 @@ import asyncio
 import structlog
 from faststream import FastStream
 from faststream.rabbit import RabbitBroker, RabbitQueue
-from pydantic import BaseModel
 
 from config import settings
+from context_builder import ContextBuilder
+from git_handler import GitHandler
+from github_client import GitHubClient
+from llm_client import LLMClient
 from models import TaskMessage, TaskMode
 
 # Configure structured logging
@@ -23,12 +26,18 @@ logger = structlog.get_logger()
 # Initialize RabbitMQ broker with graceful timeout
 broker = RabbitBroker(
     settings.rabbitmq_url,
-    graceful_timeout=900.0,  # 15 minutes
+    graceful_timeout=settings.rabbitmq_graceful_timeout,
 )
 app = FastStream(broker)
 
 # Declare queue as durable to match existing queue
 queue = RabbitQueue(name=settings.rabbitmq_queue, durable=True)
+
+# Initialize shared handlers
+git_handler = GitHandler()
+github_client = GitHubClient()
+context_builder = ContextBuilder()
+llm_client = LLMClient()
 
 
 @broker.subscriber(queue)
@@ -55,7 +64,12 @@ async def process_task(message: TaskMessage) -> None:
         if message.mode == TaskMode.PLAN:
             from modes.plan_mode import PlanMode
 
-            plan_mode = PlanMode()
+            plan_mode = PlanMode(
+                git_handler=git_handler,
+                github_client=github_client,
+                context_builder=context_builder,
+                llm_client=llm_client,
+            )
             await plan_mode.execute(message)
 
         elif message.mode == TaskMode.QUICKFIX:
