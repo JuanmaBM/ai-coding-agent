@@ -7,8 +7,8 @@ from faststream.rabbit import RabbitBroker, RabbitQueue
 
 from config import settings
 from context_builder import ContextBuilder
-from git_handler import GitHandler
-from github_client import GitHubClient
+from git.git_handler import GitHandler
+from git.git_client import GitClient
 from llm_client import LLMClient
 from models import TaskMessage, TaskMode
 
@@ -35,7 +35,7 @@ queue = RabbitQueue(name=settings.rabbitmq_queue, durable=True)
 
 # Initialize shared handlers
 git_handler = GitHandler()
-github_client = GitHubClient()
+git_client = GitClient()
 context_builder = ContextBuilder()
 llm_client = LLMClient()
 
@@ -66,7 +66,7 @@ async def process_task(message: TaskMessage) -> None:
 
             plan_mode = PlanMode(
                 git_handler=git_handler,
-                github_client=github_client,
+                git_client=git_client,
                 context_builder=context_builder,
                 llm_client=llm_client,
             )

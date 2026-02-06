@@ -5,8 +5,8 @@ from typing import Dict, Any
 import structlog
 
 from models import TaskMessage
-from git_handler import GitHandler
-from github_client import GitHubClient
+from git.git_handler import GitHandler
+from git.git_client import GitClient
 from context_builder import ContextBuilder
 from llm_client import LLMClient
 from config import settings
@@ -17,17 +17,51 @@ logger = structlog.get_logger()
 class PlanMode:
     """Orchestrate Plan Mode workflow."""
 
+    PR_BODY_TEMPLATE = """
+## 🤖 AI Agent Proposal
+
+This PR is created by the AI Coding Agent to address issue #{issue_id}.
+
+**Status:** ⏳ Awaiting human approval
+
+### Issue
+{issue_data["title"]}
+
+### Proposed Plan
+
+{plan}
+
+---
+
+**Next Steps:**
+- Review the plan above
+- If approved, comment `/approve` to proceed with implementation
+- If changes needed, provide feedback in comments
+
+**Related Issue:** #{issue_id}
+"""
+
+    ISSUE_COMMENT_TEMPLATE = """
+🤖 **AI Agent Plan Generated**
+
+I've analyzed this issue and created a draft PR with a proposed implementation plan.
+
+**Draft PR:** #{pr.number}
+
+Please review the plan and comment `/approve` on the PR to proceed with implementation.
+"""
+
     def __init__(
         self,
         git_handler: GitHandler,
-        github_client: GitHubClient,
+        git_client: GitClient,
         context_builder: ContextBuilder,
         llm_client: LLMClient,
     ):
         """Initialize Plan Mode handler."""
         self.log = logger.bind(mode="plan")
         self.git_handler = git_handler
-        self.github_client = github_client
+        self.git = git_client
         self.context_builder = context_builder
         self.llm_client = llm_client
 
@@ -54,10 +88,10 @@ class PlanMode:
                 repo_url=repo_url, target_dir=repo_name, token=settings.github_token
             )
 
-            # Fetch issue from GitHub
-            repo_obj = self.github_client.get_repository(repo_url)
-            issue = self.github_client.get_issue(repo_obj, issue_id)
-            issue_data = self.github_client.get_issue_data(issue)
+            # Fetch issue from Repository
+            repo_obj = self.git.client.get_repository(repo_url)
+            issue = self.git.client.get_issue(repo_obj, issue_id)
+            issue_data = self.git.client.get_issue_data(issue)
 
             self.log.info(
                 "issue_fetched", msg="Issue data retrieved", title=issue_data["title"]
@@ -84,48 +118,29 @@ class PlanMode:
 
             self.log.info("plan_generated", msg="LLM plan generated")
 
-            # Create branch and push to remote
             branch_name = f"ai-agent/issue-{issue_id}"
             self.git_handler.create_branch(repo_path, branch_name)
 
-            # Create empty commit (GitHub requires at least one commit for PR)
+            # Create empty commit
             self.git_handler.commit_changes(
                 repo_path,
                 f"[AI Agent] Analyzing issue #{issue_id}\n\nThis branch will contain the implementation for the issue.",
                 allow_empty=True,
             )
 
-            # Push branch to GitHub
+            # Push branch to remote
             self.git_handler.push_branch(repo_path, branch_name)
 
             # Create draft PR
             pr_title = f"[AI Agent] Fix issue #{issue_id}: {issue_data['title']}"
-            pr_body = f"""
-## 🤖 AI Agent Proposal
-
-This PR is created by the AI Coding Agent to address issue #{issue_id}.
-
-**Status:** ⏳ Awaiting human approval
-
-### Issue
-{issue_data["title"]}
-
-### Proposed Plan
-
-{plan}
-
----
-
-**Next Steps:**
-- Review the plan above
-- If approved, comment `/approve` to proceed with implementation
-- If changes needed, provide feedback in comments
-
-**Related Issue:** #{issue_id}
-"""
+            pr_body = self.PR_BODY_TEMPLATE.format(
+                issue_id=issue_id,
+                issue_data=issue_data,
+                plan=plan,
+            )
 
             try:
-                pr = self.github_client.create_pull_request(
+                pr = self.git.client.create_pull_request(
                     repo=repo_obj,
                     title=pr_title,
                     body=pr_body,
@@ -136,21 +151,10 @@ This PR is created by the AI Coding Agent to address issue #{issue_id}.
 
                 self.log.info("pr_created", msg="Draft PR created", pr_number=pr.number)
 
-                # Add comment to issue
-                issue_comment = f"""
-🤖 **AI Agent Plan Generated**
+                issue_comment = self.ISSUE_COMMENT_TEMPLATE.format(pr.number)
+                self.git.client.add_issue_comment(issue, issue_comment)
 
-I've analyzed this issue and created a draft PR with a proposed implementation plan.
-
-**Draft PR:** #{pr.number}
-
-Please review the plan and comment `/approve` on the PR to proceed with implementation.
-"""
-
-                self.github_client.add_issue_comment(issue, issue_comment)
-
-                # Add labels
-                self.github_client.add_labels(issue, ["ai-agent", "plan-pending"])
+                self.git.client.add_labels(issue, ["ai-agent", "plan-pending"])
 
                 self.log.info(
                     "plan_mode_complete",

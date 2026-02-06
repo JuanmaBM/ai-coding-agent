@@ -36,6 +36,7 @@ ENV PATH=/root/.local/bin:$PATH
 # Copy application code
 COPY *.py .
 COPY modes/ ./modes/
+COPY git/ ./git/
 
 # Create workspace directory
 RUN mkdir -p /tmp/workspace

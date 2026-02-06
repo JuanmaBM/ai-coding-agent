@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # Git Configuration
     git_clone_depth: int = 1
     workspace_dir: str = "/tmp/workspace"
+    git_client: str = "github"
 
     # GitHub Configuration
     github_token: str = ""
