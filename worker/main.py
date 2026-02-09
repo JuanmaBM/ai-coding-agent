@@ -57,6 +57,9 @@ async def process_task(message: TaskMessage) -> None:
         trigger_user=message.trigger_user,
     )
 
+    # Add greeting log
+    log.info("greeting", msg="Hello world!")
+
     log.info("task_received", msg="Starting task processing")
 
     try:
