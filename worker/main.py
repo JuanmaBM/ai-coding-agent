@@ -2,6 +2,7 @@
 
 import asyncio
 import structlog
+from datetime import datetime
 from faststream import FastStream
 from faststream.rabbit import RabbitBroker, RabbitQueue
 
@@ -56,6 +57,10 @@ async def process_task(message: TaskMessage) -> None:
         mode=message.mode.value,
         trigger_user=message.trigger_user,
     )
+
+    # Add greeting log entry
+    current_time = datetime.now().strftime("%d/%m/%Y - %H:%M:%S")
+    log.info("greeting", msg=f"Hello world! [{current_time}]")
 
     log.info("task_received", msg="Starting task processing")
 
