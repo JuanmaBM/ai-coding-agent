@@ -41,8 +41,6 @@ class LLMClient:
 
     async def _call_aider(self, prompt: str, repo_path: str, allow_commits: bool = False):
         env = os.environ.copy()
-        env["OPENAI_API_BASE"] = "http://localhost:11434/v1"
-        env["OPENAI_API_KEY"] = "ollama"
         env["PYTHONUNBUFFERED"] = "1"  # Force Python to flush logs immediately
 
         model_cmd = f"openai/{settings.llm_model}"
@@ -86,7 +84,7 @@ class LLMClient:
             self.log.error(f"Failed to configure git: {e}")
             raise
 
-    async def generate_code(self, issue_data: Dict[str, Any], repo_path: str) -> str:
+    async def generate_code(self, issue_data: Dict[str, Any], repo_path: str):
         """
         Generate code implementation for an issue.
 

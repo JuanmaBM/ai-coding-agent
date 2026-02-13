@@ -53,7 +53,7 @@ class QuickFixMode:
             self.git_handler.create_branch(repo_path, branch_name)
 
             # Generate code
-            await self.llm_client.generate_code(issue_data, repo_path)
+            await self.llm_client.generate_code(issue_data, str(repo_path))
 
             self.git_handler.push_branch(repo_path, branch_name)
 
