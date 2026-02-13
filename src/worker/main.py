@@ -5,12 +5,11 @@ import structlog
 from faststream import FastStream
 from faststream.rabbit import RabbitBroker, RabbitQueue
 
-from config import settings
-from context_builder import ContextBuilder
-from git.git_handler import GitHandler
-from git.git_client import GitClient
-from llm_client import LLMClient
-from models import TaskMessage, TaskMode
+from worker.config import settings
+from worker.git.git_client import GitClient
+from worker.git.git_handler import GitHandler
+from worker.llm_client import LLMClient
+from worker.models import TaskMessage, TaskMode
 
 # Configure structured logging
 structlog.configure(
@@ -36,7 +35,6 @@ queue = RabbitQueue(name=settings.rabbitmq_queue, durable=True)
 # Initialize shared handlers
 git_handler = GitHandler()
 git_client = GitClient()
-context_builder = ContextBuilder()
 llm_client = LLMClient()
 
 
@@ -61,24 +59,18 @@ async def process_task(message: TaskMessage) -> None:
 
     try:
         # Route to appropriate mode
-        if message.mode == TaskMode.PLAN:
-            from modes.plan_mode import PlanMode
+        if message.mode == TaskMode.QUICKFIX:
+            from worker.modes.quickfix_mode import QuickFixMode
 
-            plan_mode = PlanMode(
+            quickfix_mode = QuickFixMode(
                 git_handler=git_handler,
                 git_client=git_client,
-                context_builder=context_builder,
                 llm_client=llm_client,
             )
-            await plan_mode.execute(message)
+            await quickfix_mode.execute(message)
 
-        elif message.mode == TaskMode.QUICKFIX:
-            log.warning("mode_not_implemented", msg="QuickFix mode not yet implemented")
-
-        elif message.mode == TaskMode.PLAN_APPROVAL:
-            log.warning(
-                "mode_not_implemented", msg="Plan approval mode not yet implemented"
-            )
+        elif message.mode == TaskMode.REFINE:
+            log.warning("mode_not_implemented", msg="Refine mode not yet implemented")
 
         else:
             log.error("unknown_mode", msg="Unknown task mode", mode=message.mode)
@@ -87,9 +79,7 @@ async def process_task(message: TaskMessage) -> None:
         log.info("task_completed", msg="Task processed successfully")
 
     except Exception as e:
-        log.error(
-            "task_failed", msg="Task processing failed", error=str(e), exc_info=True
-        )
+        log.error("task_failed", msg="Task processing failed", error=str(e), exc_info=True)
         raise
 
 

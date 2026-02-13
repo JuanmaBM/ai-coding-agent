@@ -1,13 +1,12 @@
 """Git operations handler for cloning and managing repositories."""
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Optional
 import structlog
 
-from config import settings
+from worker.config import settings
 
 logger = structlog.get_logger()
 
@@ -52,9 +51,7 @@ class GitHandler:
 
         # Clean up if exists
         if repo_path.exists():
-            self.log.warning(
-                "repo_exists", msg="Removing existing repo", path=str(repo_path)
-            )
+            self.log.warning("repo_exists", msg="Removing existing repo", path=str(repo_path))
             shutil.rmtree(repo_path)
 
         # Build clone URL with token if provided
@@ -129,14 +126,10 @@ class GitHandler:
             )
             self.log.info("branch_created", msg="Branch created", branch=branch_name)
         except subprocess.CalledProcessError as e:
-            self.log.error(
-                "branch_failed", msg="Failed to create branch", error=e.stderr
-            )
+            self.log.error("branch_failed", msg="Failed to create branch", error=e.stderr)
             raise
 
-    def commit_changes(
-        self, repo_path: Path, message: str, allow_empty: bool = False
-    ) -> None:
+    def commit_changes(self, repo_path: Path, message: str, allow_empty: bool = False) -> None:
         """
         Stage all changes and commit.
 
@@ -166,27 +159,21 @@ class GitHandler:
             )
 
             # Stage all changes
-            subprocess.run(
-                ["git", "add", "-A"], cwd=repo_path, check=True, capture_output=True
-            )
+            subprocess.run(["git", "add", "-A"], cwd=repo_path, check=True, capture_output=True)
 
             # Commit
             commit_cmd = ["git", "commit", "-m", message]
             if allow_empty:
                 commit_cmd.append("--allow-empty")
 
-            subprocess.run(
-                commit_cmd, cwd=repo_path, check=True, capture_output=True, text=True
-            )
+            subprocess.run(commit_cmd, cwd=repo_path, check=True, capture_output=True, text=True)
 
             self.log.info("commit_success", msg="Changes committed")
         except subprocess.CalledProcessError as e:
             self.log.error("commit_failed", msg="Git commit failed", error=e.stderr)
             raise
 
-    def push_branch(
-        self, repo_path: Path, branch_name: str, remote: str = "origin"
-    ) -> None:
+    def push_branch(self, repo_path: Path, branch_name: str, remote: str = "origin") -> None:
         """
         Push branch to remote.
 
@@ -227,9 +214,7 @@ class GitHandler:
             shutil.rmtree(repo_path)
             self.log.info("cleanup_done", msg="Repository removed")
         else:
-            self.log.warning(
-                "cleanup_skip", msg="Repository not found", path=str(repo_path)
-            )
+            self.log.warning("cleanup_skip", msg="Repository not found", path=str(repo_path))
 
     def get_file_tree(self, repo_path: Path, max_depth: int = 3) -> str:
         """

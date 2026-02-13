@@ -7,7 +7,7 @@ from github.Issue import Issue
 from github.PullRequest import PullRequest
 import structlog
 
-from config import settings
+from worker.config import settings
 
 logger = structlog.get_logger()
 

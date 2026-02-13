@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-coding-agent-worker"
+version = "0.1.0"
+description = "AI Coding Agent - Autonomous issue resolver for Github/Gitlab"
+requires-python = ">=3.11"
+authors = [
+    { name = "AI Coding Agent Team" }
+]
+
+dependencies = [
+    "faststream[rabbit]>=0.5.33",
+    "pydantic>=2.5.2,<3.0.0",
+    "pydantic-settings>=2.7.0",
+    "structlog>=24.1.0",
+    "python-dotenv>=1.0.0",
+    "langchain-ollama>=0.2.2",
+    "langchain-core>=0.3.29",
+    "GitPython>=3.1.45",
+    "PyGithub>=2.1.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+    "debugpy",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.ruff]
+line-length = 100
+indent-width = 4

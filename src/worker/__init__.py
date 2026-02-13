@@ -1,0 +1,2 @@
+"""AI Coding Agent Worker."""
+

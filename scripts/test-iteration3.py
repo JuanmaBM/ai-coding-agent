@@ -40,7 +40,7 @@ def publish_plan_mode_test(
         message = {
             "repo_url": repo_url,
             "issue_id": issue_id,
-            "mode": "plan",
+            "mode": "quickfix",
             "trigger_user": "test-script"
         }
         
