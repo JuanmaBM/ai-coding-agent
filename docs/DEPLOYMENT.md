@@ -1,190 +1,297 @@
 # Deployment Guide
 
-Complete step-by-step guide for deploying the AI Coding Agent with Git, LLM, and GitHub integration.
+## Table of Contents
 
-## Prerequisites
+- [Local Development](#local-development)
+- [Kubernetes Deployment](#kubernetes-deployment)
+- [Configuration Reference](#configuration-reference)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## Local Development
+
+### Prerequisites
+
+- Python 3.11+
+- Podman or Docker
+- Ollama installed locally
+- Git
+
+### Step 1: Start Local Services
+
+```bash
+chmod +x scripts/setup-local.sh
+./scripts/setup-local.sh
+```
+
+This starts:
+
+- **RabbitMQ** on port 5672 (Management UI: <http://localhost:15672>, user: admin, password: password)
+- **Ollama** on port 11434
+
+### Step 2: Pull LLM Model
+
+```bash
+ollama pull qwen2.5-coder:14b
+```
+
+Verify it works:
+
+```bash
+curl -X POST http://localhost:11434/api/generate \
+  -d '{"model": "qwen2.5-coder:14b", "prompt": "Hello", "stream": false}'
+```
+
+### Step 3: Install Worker
+
+```bash
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate
+
+# Install as editable package
+pip install -e .
+```
+
+### Step 4: Configure Environment
+
+Create a `.env` file in the project root or export the variables:
+
+```bash
+export RABBITMQ_HOST=localhost
+export RABBITMQ_PORT=5672
+export RABBITMQ_USER=admin
+export RABBITMQ_PASSWORD=password
+export RABBITMQ_QUEUE=agent-tasks
+export GITHUB_TOKEN=ghp_your_token_here
+export LLM_MODEL=qwen2.5-coder:14b
+export OLLAMA_BASE_URL=http://localhost:11434
+export GIT_CLIENT=github
+export LOG_LEVEL=DEBUG
+```
+
+### Step 5: Run Worker
+
+```bash
+python -m worker.main
+```
+
+You should see:
+
+```
+INFO - FastStream app starting...
+INFO - agent-tasks | - `ProcessTask` waiting for messages
+```
+
+### Step 6: Test
+
+In another terminal:
+
+```bash
+cd scripts
+pip install -r requirements.txt
+
+python test-iteration3.py \
+  --repo-url https://github.com/your-user/your-repo \
+  --issue-id 1 \
+  --mode quickfix
+```
+
+Monitor the worker logs in the first terminal.
+
+### Cleanup
+
+```bash
+./scripts/cleanup-local.sh
+```
+
+---
+
+## Kubernetes Deployment
+
+### Prerequisites
 
 - Minikube installed
 - kubectl configured
 - Helm 3.x
-- Docker or Podman
+- Podman or Docker
 
-## Step 1: Start Minikube
+### Step 1: Start Minikube
 
 ```bash
-minikube start --cpus 2 --memory 4096
+minikube start --cpus 4 --memory 8192
 minikube addons enable metrics-server
 minikube addons enable ingress
 ```
 
-## Step 2: Create Namespace
+### Step 2: Automated Deployment
 
 ```bash
-kubectl apply -f k8s/base/namespace.yaml
+chmod +x install.sh
+./install.sh
 ```
 
-## Step 3: Build Worker Image
+This script automatically:
+
+1. Creates namespace `ai-agent`
+2. Deploys RabbitMQ
+3. Installs KEDA for auto-scaling
+4. Creates all required secrets
+5. Deploys Ollama LLM service
+6. Deploys the worker
+
+### Step 3: Build and Load Worker Image
 
 ```bash
-eval $(minikube docker-env)
-cd worker
-docker build -t ai-agent-worker:latest .
-cd ..
+# Build the image
+podman build -t localhost/ai-agent-worker:latest -f Dockerfile .
+
+# Load into Minikube
+podman save localhost/ai-agent-worker:latest -o /tmp/ai-agent-worker.tar
+minikube image load /tmp/ai-agent-worker.tar
+rm -f /tmp/ai-agent-worker.tar
+
+# Restart deployment to use new image
+kubectl rollout restart deployment/ai-agent-worker -n ai-agent
 ```
 
-## Step 4: Deploy RabbitMQ
+### Step 4: Configure GitHub Token
 
 ```bash
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm repo update
-
-helm install rabbitmq bitnami/rabbitmq \
-  -f k8s/base/rabbitmq-values.yaml \
-  -n ai-agent \
-  --set auth.password=DevPassword123 \
-  --wait --timeout=5m
+chmod +x scripts/setup-github-token.sh
+./scripts/setup-github-token.sh ghp_your_token_here
 ```
 
-## Step 5: Deploy KEDA
+Or manually:
 
 ```bash
-helm repo add kedacore https://kedacore.github.io/charts
-helm repo update
-
-helm install keda kedacore/keda \
-  --namespace keda \
-  --create-namespace \
-  --wait
-```
-
-## Step 6: Create Secrets
-
-```bash
-# RabbitMQ credentials
-kubectl create secret generic rabbitmq-credentials \
-  --from-literal=username=admin \
-  --from-literal=password=DevPassword123 \
-  -n ai-agent
-
-# KEDA authentication
-kubectl create secret generic keda-rabbitmq-secret \
-  --from-literal=host="amqp://admin:DevPassword123@rabbitmq.ai-agent.svc.cluster.local:5672/" \
-  -n ai-agent
-```
-
-## Step 7: Deploy Configuration
-
-```bash
-kubectl apply -f k8s/base/configmap.yaml
-kubectl apply -f k8s/base/keda-auth.yaml
-```
-
-## Step 8: Deploy Ollama (LLM Service)
-
-```bash
-kubectl apply -f k8s/base/ollama-deployment.yaml
-
-# Wait for Ollama to be ready
-kubectl wait --for=condition=ready pod -l app=ollama -n ai-agent --timeout=120s
-
-# Check model download progress
-kubectl logs -f job/ollama-pull-model -n ai-agent
-```
-
-**Note:** Model download can take 5-10 minutes
-
-## Step 9: Create GitHub Token Secret
-
-```bash
-# Replace with your GitHub token
 kubectl create secret generic github-credentials \
-  --from-literal=token=ghp_YOUR_GITHUB_TOKEN \
-  -n ai-agent
+  --from-literal=token=ghp_your_token_here \
+  -n ai-agent \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-To get a GitHub token:
-1. Go to https://github.com/settings/tokens
-2. Generate new token (classic)
-3. Select scope: `repo`
-4. Copy the token
-
-## Step 10: Deploy Worker
+### Step 5: Verify Deployment
 
 ```bash
-kubectl apply -f k8s/base/deployment.yaml
-kubectl apply -f k8s/base/scaledobject.yaml
-```
+# Check all pods
+kubectl get pods -n ai-agent
 
-## Step 11: Verify Deployment
+# Expected:
+# rabbitmq-xxx     1/1  Running
+# ollama-xxx       1/1  Running
+# worker           0/0  (scaled to zero by KEDA)
 
-```bash
-kubectl get all -n ai-agent
-```
+# Check KEDA
+kubectl get scaledobject -n ai-agent
 
-Expected output:
-- RabbitMQ: 1/1 Running
-- Ollama: 1/1 Running  
-- Worker: 0/0 (scaled to zero by KEDA)
-
-```bash
 # Check secrets
 kubectl get secrets -n ai-agent
 ```
 
-Should show: `rabbitmq-credentials`, `keda-rabbitmq-secret`, `github-credentials`
-
-## Step 12: Test Plan Mode
-
-### Prepare Test
+### Step 6: Test
 
 ```bash
 # Port-forward RabbitMQ
 kubectl port-forward -n ai-agent svc/rabbitmq 5672:5672 &
 
-# Install test dependencies
+# Publish test message
 cd scripts
-pip install -r requirements.txt
-```
-
-### Run Test
-
-```bash
-# Test with your GitHub repository
 python test-iteration3.py \
-  --repo-url https://github.com/YOUR_USERNAME/YOUR_REPO \
-  --issue-id 1
+  --repo-url https://github.com/your-user/your-repo \
+  --issue-id 1 \
+  --mode quickfix
 ```
 
-### Monitor Execution
+### Monitoring
 
 ```bash
-# Watch pods scale (in another terminal)
+# Watch pods scale up/down
 kubectl get pods -n ai-agent -w
 
 # View worker logs
 kubectl logs -f -n ai-agent -l app=ai-agent-worker
+
+# Check KEDA metrics
+kubectl describe scaledobject ai-agent-worker-scaler -n ai-agent
+
+# RabbitMQ Management UI
+kubectl port-forward -n ai-agent svc/rabbitmq 15672:15672
+# Open http://localhost:15672 (admin/DevPassword123)
 ```
 
-### Expected Results
-
-After 2-5 minutes:
-- ✓ Worker scaled from 0→1
-- ✓ Repository cloned
-- ✓ Issue analyzed
-- ✓ Plan generated with Ollama
-- ✓ Draft PR created on GitHub
-- ✓ Comment posted on issue
-- ✓ Labels added: `ai-agent`, `plan-pending`
-- ✓ Worker scaled back to 0
-
-## Cleanup
+### Rebuilding After Code Changes
 
 ```bash
-helm uninstall rabbitmq -n ai-agent
-helm uninstall keda -n keda
-kubectl delete namespace ai-agent keda
-minikube stop
+make rebuild
 ```
+
+Or manually:
+
+```bash
+podman build -t localhost/ai-agent-worker:latest -f Dockerfile .
+podman save localhost/ai-agent-worker:latest -o /tmp/ai-agent-worker.tar
+minikube image load /tmp/ai-agent-worker.tar
+kubectl rollout restart deployment/ai-agent-worker -n ai-agent
+```
+
+### Cleanup
+
+```bash
+# Delete all resources
+kubectl delete namespace ai-agent
+helm uninstall keda -n keda
+kubectl delete namespace keda
+
+# Stop Minikube
+minikube stop
+
+# Delete cluster entirely
+minikube delete
+```
+
+---
+
+## Configuration Reference
+
+### Environment Variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `RABBITMQ_HOST` | RabbitMQ hostname | `localhost` |
+| `RABBITMQ_PORT` | RabbitMQ port | `5672` |
+| `RABBITMQ_USER` | RabbitMQ username | `admin` |
+| `RABBITMQ_PASSWORD` | RabbitMQ password | `password` |
+| `RABBITMQ_VHOST` | RabbitMQ virtual host | `/` |
+| `RABBITMQ_QUEUE` | Queue name | `agent-tasks` |
+| `RABBITMQ_GRACEFUL_TIMEOUT` | Graceful shutdown timeout (seconds) | `300` |
+| `GITHUB_TOKEN` | GitHub Personal Access Token | Required |
+| `GIT_CLIENT` | Git provider (`github`) | `github` |
+| `GIT_CLONE_DEPTH` | Shallow clone depth | `1` |
+| `WORKSPACE_DIR` | Temp directory for git operations | `/tmp/workspace` |
+| `LLM_PROVIDER` | LLM provider | `ollama` |
+| `LLM_MODEL` | Model name | `qwen2.5-coder:14b` |
+| `OLLAMA_BASE_URL` | Ollama API endpoint | `http://localhost:11434` |
+| `LOG_LEVEL` | Logging level | `INFO` |
+
+### GitHub Token
+
+Create a Personal Access Token at <https://github.com/settings/tokens> with scope: `repo`
+
+### Kubernetes Resources
+
+| Resource | File | Purpose |
+|---|---|---|
+| Namespace | `k8s/base/namespace.yaml` | Isolation |
+| RabbitMQ | `k8s/base/rabbitmq-simple.yaml` | Message broker |
+| KEDA Auth | `k8s/base/keda-auth.yaml` | KEDA authentication |
+| ScaledObject | `k8s/base/scaledobject.yaml` | Auto-scaling config |
+| ConfigMap | `k8s/base/configmap.yaml` | Worker configuration |
+| Deployment | `k8s/base/deployment.yaml` | Worker pods |
+| Ollama | `k8s/base/ollama-deployment.yaml` | LLM service |
+
+---
 
 ## Troubleshooting
 
@@ -195,15 +302,55 @@ kubectl describe scaledobject ai-agent-worker-scaler -n ai-agent
 kubectl logs -n keda -l app=keda-operator
 ```
 
-### RabbitMQ Connection Issues
+Common cause: KEDA can't authenticate to RabbitMQ. Recreate the secret:
 
 ```bash
-kubectl logs -n ai-agent -l app=rabbitmq
-kubectl get svc -n ai-agent
+kubectl delete secret keda-rabbitmq-secret -n ai-agent
+kubectl create secret generic keda-rabbitmq-secret \
+  --from-literal=host="amqp://admin:DevPassword123@rabbitmq.ai-agent.svc.cluster.local:5672/" \
+  -n ai-agent
 ```
 
-### View Worker Logs
+### Worker Image Not Found
 
 ```bash
-kubectl logs -f -n ai-agent -l app=ai-agent-worker
+# Verify image in Minikube
+minikube image ls | grep ai-agent
+
+# If not found, rebuild and load
+podman build -t localhost/ai-agent-worker:latest -f Dockerfile .
+podman save localhost/ai-agent-worker:latest -o /tmp/ai-agent-worker.tar
+minikube image load /tmp/ai-agent-worker.tar
+```
+
+### GitHub API Errors (401/404)
+
+```bash
+# Verify token
+kubectl get secret github-credentials -n ai-agent -o jsonpath='{.data.token}' | base64 -d
+
+# Test token
+curl -H "Authorization: token YOUR_TOKEN" https://api.github.com/user
+```
+
+### Ollama Not Responding
+
+```bash
+# Local
+curl http://localhost:11434/api/tags
+
+# Kubernetes
+kubectl get pods -n ai-agent -l app=ollama
+kubectl logs -n ai-agent -l app=ollama
+```
+
+### RabbitMQ Connection Refused
+
+```bash
+# Local
+podman ps | grep rabbitmq
+
+# Kubernetes
+kubectl get pods -n ai-agent -l app=rabbitmq
+kubectl logs -n ai-agent -l app=rabbitmq
 ```

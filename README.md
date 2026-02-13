@@ -1,217 +1,139 @@
-# ai-coding-agent
+# AI Coding Agent
 
-# AI Coding Agent - Proof of Concept (POC) Technical Design Document
+An autonomous AI agent that resolves GitHub issues by analyzing code, generating fixes, and creating pull requests automatically.
 
-> **Status**: 🚧 Iterations 1 & 2 Implemented - Infrastructure and Hello World Worker  
-> **Quick Start**: See [QUICKSTART.md](QUICKSTART.md) for deployment instructions  
+## Overview
 
-## Getting Started
+The AI Coding Agent is an event-driven system built on Kubernetes that processes GitHub issues. It uses [Aider](https://aider.chat) as the code generation engine, which supports any LLM provider (OpenAI, Anthropic, local models via Ollama, etc.).
 
-This project is being built iteratively. Currently implemented:
+For optimal results, a sufficiently powerful LLM is recommended (e.g., Claude 3.5 Sonnet, GPT-4o, DeepSeek Coder V2). Ollama with local models is supported for development and testing environments.
 
-- ✅ **Iteration 1**: Kubernetes infrastructure with RabbitMQ and KEDA auto-scaling
-- ✅ **Iteration 2**: Hello World worker with FastStream
-- ⏳ **Iteration 3**: Git & LLM Integration (Next)
-- ⏳ **Iteration 4**: Code Execution & PRs
-- ⏳ **Iteration 5**: GitHub Webhooks
-- ⏳ **Iteration 6**: Production Hardening
+For deployment instructions, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). For architecture details, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-**To deploy locally:** Follow the [QUICKSTART.md](QUICKSTART.md) guide or use `make all` to deploy everything automatically.
+## Modes
 
-## 1. Executive Summary
-The objective of this project is to build an **Autonomous AI Coding Agent** capable of resolving low-to-medium complexity GitHub/Jira issues. The tool aims to reduce cognitive load and repetitive work for developers by operating asynchronously.
+### QuickFix Mode
 
-The system utilizes an **Event-Driven Architecture** on Kubernetes, leveraging **RabbitMQ** for robust message queuing and **KEDA** for serverless-like auto-scaling (scaling to zero).
+Automatically generates code and creates a PR for the issue.
 
+**Workflow:**
+1. Agent receives the issue via RabbitMQ.
+2. Clones the repository.
+3. Uses Aider + LLM to generate the code fix.
+4. Commits, pushes, and opens a Pull Request.
+5. Posts a comment on the issue linking to the PR.
 
-## 2. Core Features & Modes
+### Refine Mode *(In Progress)*
 
-The agent operates in two distinct configurations, depending of the label you set in the issue:
+Allows reviewers to request changes on an agent-created PR using a `/refine` command.
 
-### A. QuickFix Mode ("Fire and Forget")
-* **Use Case:** Atomic tasks such as simple bugs, typos, documentation updates, or dependency bumps.
-* **Workflow:**
-    1.  Agent receives the issue context.
-    2.  Agent analyzes code and generates the solution.
-    3.  Agent immediately opens a Pull Request (PR) with the fix.
+**Workflow:**
+1. A reviewer comments `/refine <description of changes>` on the PR.
+2. The agent picks up the refinement request.
+3. Aider applies the requested changes to the existing branch.
+4. Pushes the updated code to the same PR.
 
-### B. Plan Mode ("Human-in-the-loop")
-* **Use Case:** Small features, refactoring, or complex bugs requiring supervision.
-* **Phase 1 - Proposal:**
-    1.  Agent analyzes the repository and the issue.
-    2.  Agent opens a Pull Request.
-    2.  Agent posts a **comment** on the issue detailing a plan (files to modify, strategy).
-    3.  Agent waits for human feedback.
-* **Phase 2 - Execution:**
-    1.  Maintainer triggers approval (e.g., comment `/approve`).
-    2.  Agent update the PR description and write the description of the solution (follow PR guidelines).
-    2.  Agent executes the approved plan, generates code, and pushes the PR.
+## Architecture
 
-In order the issue been done by the agent, it should be assigned by the agent user, which will be a user in Jira/GitHub that trigger an action/webhook to send all issue information to the agent API.
-
-#### DISCUSSION: Verify if can create dummy users on Jira/GitHub to trigger the webhook process. If not, maybe can do the same using specific labels.
-
-## 3. System Architecture
-
-The architecture is designed to be **Stateless** and **Event-Driven**.
-
-### 3.1 High-Level Diagram
+The architecture is **stateless** and **event-driven**.
 
 ```mermaid
 graph TD
-    A[GitHub/Jira Webhook] -->|HTTP POST| B[API Gateway / Ingress]
-    B -->|Publish Task| C[RabbitMQ Cluster]
-    C -->|Queue: agent-tasks| D[Worker Pods]
-    E[KEDA Scaler] -->|Monitor Queue Length| D
-    D <-->|API Call| F[LLM Provider - Claude 3.5]
-    D <-->|Git Ops| G[GitHub Repository]
-
+    A[GitHub Issue] -->|Trigger| B[RabbitMQ Queue]
+    B -->|KEDA scales 0→N| C[Worker Pod]
+    C -->|Clone| D[Repository]
+    C -->|Aider| E[LLM Provider]
+    C -->|Create PR| F[GitHub API]
 ```
 
-### 3.2 Design Principles
+### Design Principles
 
-1. **Stateless Workers:** Pods do not retain state between jobs. "State is stored in the Issue, not in the Pod."
-2. **Robustness (Ack/Nack):** Utilizing RabbitMQ ensures no tasks are lost if a pod crashes during execution (automatic re-queueing).
-3. **Cost-Efficiency:** KEDA allows the worker pool to scale to zero when the queue is empty.
-4. **Ephemeral Storage:** Workers use `emptyDir` for temporary git operations, cleaning up immediately after task completion.
+1. **Stateless Workers** — Pods do not retain state between jobs.
+2. **Scale to Zero** — KEDA scales the worker pool to zero when the queue is empty.
+3. **Robust Delivery** — RabbitMQ ACK/NACK ensures no tasks are lost if a pod crashes.
+4. **Ephemeral Storage** — Workers use `emptyDir` for temporary git operations.
 
-
-## 4. Technology Stack
+## Technology Stack
 
 | Component | Choice | Justification |
-| --- | --- | --- |
-| **Language** | **Python 3.11+** | Dominant ecosystem for AI (LangChain, LlamaIndex, FastStream). |
-| **Message Broker** | **RabbitMQ** | Chosen over Redis for robust delivery guarantees (Ack/Nack) and native persistence. |
-| **Queue Library** | **FastStream** | Modern abstraction layer over AMQP, allowing future switch to Kafka/Redis if needed without code rewrites. |
-| **Orchestration** | **Kubernetes + KEDA** | Native auto-scaling based on RabbitMQ queue depth. |
-| **LLM Model** | **Claude 3.5 Sonnet** | Current SOTA (State of the Art) model for code generation. |
-| **Git Strategy** | **Shallow Clone** | `git clone --depth 1` to minimize bandwidth and storage usage. |
+|---|---|---|
+| **Language** | Python 3.11+ | AI ecosystem (FastStream, Pydantic, Aider) |
+| **Message Broker** | RabbitMQ | Delivery guarantees (ACK/NACK), persistence |
+| **Queue Library** | FastStream | Async AMQP abstraction, portable across brokers |
+| **Orchestration** | Kubernetes + KEDA | Auto-scaling based on queue depth |
+| **Code Generation** | Aider | AI pair programming tool, edits files directly |
+| **LLM** | Any (OpenAI, Anthropic, Ollama, etc.) | Aider supports multiple providers. Use powerful models for best results |
+| **Git** | GitPython + subprocess | Repository cloning, branching, pushing |
+| **GitHub API** | PyGithub | Issue/PR management |
 
-
-## 5. Detailed Workflows
-
-### 5.1 Task Ingestion
-
-1. **Webhook:** Payload received from GitHub/Jira.
-2. **Filtering:** Verify relevance (e.g., label `ai-help` present).
-3. **Publishing:** Payload is normalized and sent to RabbitMQ queue `agent-tasks`.
-* *Payload structure:* `{ "repo_url": "...", "issue_id": 123, "mode": "plan", "trigger_user": "dev1" }`
-
-
-
-### 5.2 Worker Execution Cycle
-
-The worker is a Python script managed by KEDA.
-
-1. **Consume:** Worker claims a message from RabbitMQ.
-2. **Environment Setup:**
-* Create temporary directory.
-* Perform `git clone --depth 1` (Snapshot of current code).
-
-
-3. **Context Retrieval (RAG):**
-* Read issue description.
-* Identify relevant files via file-tree analysis.
-* Read content of candidate files.
-
-
-4. **LLM Reasoning:**
-* Send Context + Issue + Instructions to Claude API.
-* Receive Logic or Code diff.
-
-
-5. **Action:**
-* *Both:* Create the PR
-* *If Plan Mode:* Post comment via GitHub API in the PR.
-* *If QuickFix/Approved:* Apply patches locally -> `git commit` -> `git push` -> Request a aprove/revision.
-
-
-6. **Cleanup:** Recursively delete temporary directory.
-7. **Acknowledge:** Send `ACK` to RabbitMQ.
-
-
-## 6. Infrastructure & DevOps Configuration
-
-### 6.1 RabbitMQ Deployment (Helm)
-
-Standard deployment using Bitnami chart.
-
-```bash
-helm install rabbitmq oci://registry-1.docker.io/bitnami/rabbitmq
+## Project Structure
 
 ```
-
-### 6.2 KEDA ScaledObject
-
-Configuration to autoscale workers based on pending tasks.
-
-```yaml
-apiVersion: keda.sh/v1alpha1
-kind: ScaledObject
-metadata:
-  name: agent-worker-scaler
-  namespace: default
-spec:
-  scaleTargetRef:
-    name: ai-agent-worker
-  minReplicaCount: 0       # Scale to zero enabled
-  maxReplicaCount: 10      # Circuit breaker for costs
-  triggers:
-  - type: rabbitmq
-    metadata:
-      queueName: agent-tasks
-      mode: QueueLength
-      value: "1"           # Target 1 pod per 1 message
-    authenticationRef:
-      name: keda-rabbitmq-auth
-
+ai-coding-agent/
+├── pyproject.toml              # Python package definition
+├── Dockerfile                  # Container image
+├── Makefile                    # Build automation
+├── install.sh                  # K8s automated deployment
+├── docs/
+│   └── DEPLOYMENT.md           # Deployment & dev guide
+├── k8s/                        # Kubernetes manifests
+│   ├── base/
+│   └── secrets/
+├── scripts/                    # Utility scripts
+│   ├── setup-local.sh
+│   ├── cleanup-local.sh
+│   └── test-iteration3.py
+└── src/worker/                 # Application code
+    ├── main.py                 # FastStream entrypoint & routing
+    ├── config.py               # Configuration (env vars)
+    ├── models.py               # Pydantic message models
+    ├── llm_client.py           # Aider + Ollama integration
+    ├── git/
+    │   ├── git_client.py       # Git provider factory
+    │   ├── git_handler.py      # Git operations (clone, branch, push)
+    │   └── github_client.py    # GitHub API client
+    └── modes/
+        └── quickfix_mode.py    # QuickFix workflow orchestrator
 ```
 
+## Worker Execution Flow
 
-## 7. Security & Risk Management
+1. **Consume** — Worker claims a message from RabbitMQ.
+2. **Clone** — Shallow clone (`depth=1`) of the target repository.
+3. **Fetch Issue** — Read issue details from GitHub API.
+4. **Generate Code** — Aider analyzes the repo and generates changes using the configured LLM.
+5. **Push** — Commit and push changes to a new branch.
+6. **Create PR** — Open a pull request with the fix.
+7. **Comment** — Post a comment on the issue linking to the PR.
+8. **Cleanup** — Delete temporary workspace.
+9. **ACK** — Acknowledge message to RabbitMQ.
 
-### 7.1 Hallucination Control
+## Security
 
-* **Strict Context Window:** The agent is explicitly instructed to only modify files it has read.
-* **Syntax Check:** Before pushing, the worker runs a basic syntax check (AST parse). If it fails, the agent is prompted to self-correct (Max 1 retry).
+- **Secrets** are injected via Kubernetes Secrets (GitHub token, RabbitMQ credentials).
+- **Token Scope** is limited to `repo` (contents + issues + PRs).
+- **Ephemeral workspaces** are deleted after each task.
+- **Human review** is always required before merging agent-generated PRs.
 
-### 7.2 Access Control
+For details on hallucination control, access control, and threat model, see [docs/SECURITY.md](docs/SECURITY.md).
 
-* **Secrets Management:** API Keys (Claude, GitHub Token) are injected via Kubernetes Secrets.
-* **Token Scope:** The GitHub App token is scoped strictly to `contents: write` and `issues: write` for specific repositories.
+## LLM Configuration
 
+The agent supports any LLM provider through Aider: OpenAI, Anthropic, Ollama, and more. See [docs/LLM_CONFIGURATION.md](docs/LLM_CONFIGURATION.md) for setup instructions and recommended models.
 
-## 8. POC Roadmap
+## Roadmap
 
-1. **Iteration 1: Infrastructure Foundation**
-* Set up local K8s cluster (Minikube/Kind).
-* Deploy RabbitMQ and verify KEDA scaling.
+- [x] Kubernetes infrastructure (RabbitMQ, KEDA, auto-scaling)
+- [x] Worker with FastStream message consumer
+- [x] Git operations (clone, branch, commit, push)
+- [x] GitHub API integration (issues, PRs, comments)
+- [x] LLM integration via Aider + Ollama
+- [x] QuickFix Mode (end-to-end)
+- [ ] Refine Mode (`/refine` command on PRs)
+- [ ] GitHub webhook integration (automatic issue detection)
+- [ ] CI/CD pipeline
+- [ ] Helm chart
 
+## License
 
-2. **Iteration 2: The "Hello World" Worker**
-* Create Python worker with FastStream.
-* Implement loop: Receive message -> Print to console -> ACK.
-
-
-3. **Iteration 3: Git & LLM Integration**
-* Implement `git clone --depth 1`.
-* Connect to LLMs using Ollama
-* Implement "Plan Mode" (just posting proposal).
-
-
-4. **Iteration 4: Execution & PRs**
-* Implement code application logic.
-* Implement "QuickFix"
-
-
-5. **Iteration 5: Add webhook**
-* Add GitHub webhook to send issue data 
-* End-to-end testing with a dummy repository.
-
-
-6. **Iteration 6: Add all Kubernetes resources to deploy the agent**
-* Add K8s resources
-* All credentials should be set as secrets
-
-#### DISCUSSION: Maybe other iteration to convert the project into a Kubernetes operator or a Helm chart?
-
+See [LICENSE](LICENSE) for details.
