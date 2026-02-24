@@ -5,7 +5,7 @@ import argparse
 import json
 import pika
 import sys
-
+import subprocess
 
 def publish_plan_mode_test(
     host: str = "localhost",
@@ -69,7 +69,6 @@ def publish_plan_mode_test(
         print(f"   kubectl port-forward -n ai-agent svc/rabbitmq 5672:5672")
         sys.exit(1)
 
-
 def main():
     parser = argparse.ArgumentParser(description="Test Iteration 3 - Plan Mode")
     parser.add_argument("--host", default="localhost")
@@ -79,20 +78,26 @@ def main():
     parser.add_argument("--queue", default="agent-tasks")
     parser.add_argument("--repo-url", required=True, help="GitHub repository URL")
     parser.add_argument("--issue-id", type=int, default=1, help="Issue number")
+    parser.add_argument("--mode", choices=["plan", "quickfix"], required=True, help="Mode to execute (plan or quickfix)")
     
     args = parser.parse_args()
     
-    publish_plan_mode_test(
-        host=args.host,
-        port=args.port,
-        username=args.username,
-        password=args.password,
-        queue=args.queue,
-        repo_url=args.repo_url,
-        issue_id=args.issue_id
-    )
-
+    if args.mode == "plan":
+        publish_plan_mode_test(
+            host=args.host,
+            port=args.port,
+            username=args.username,
+            password=args.password,
+            queue=args.queue,
+            repo_url=args.repo_url,
+            issue_id=args.issue_id
+        )
+    elif args.mode == "quickfix":
+        # Call simulate-webhook.py with the appropriate mode
+        subprocess.run(["python", "simulate-webhook.py", "--repo-url", args.repo_url, "--issue-id", str(args.issue_id), "--mode", args.mode])
+    else:
+        print("❌ Error: Invalid mode specified")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
-
