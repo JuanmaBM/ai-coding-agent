@@ -4,6 +4,9 @@ on:
   issue_comment:
     types: [created]
 
+permissions:
+  pull-requests: write
+
 jobs:
   process-refine-command:
     # Only run if:
@@ -51,6 +54,15 @@ jobs:
           RABBITMQ_USER: ${{ secrets.RABBITMQ_USER }}
           RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
           RABBITMQ_QUEUE: ${{ secrets.RABBITMQ_QUEUE }}
+          REPO_URL: ${{ steps.extract.outputs.repo_url }}
+          PR_NUMBER: ${{ steps.extract.outputs.pr_number }}
+          PR_BRANCH: ${{ steps.pr_details.outputs.pr_branch }}
+          PR_TITLE: ${{ steps.pr_details.outputs.pr_title }}
+          BASE_BRANCH: ${{ steps.pr_details.outputs.pr_base_branch }}
+          REFINE_REQUEST: ${{ steps.extract.outputs.refine_request }}
+          TRIGGER_USER: ${{ steps.extract.outputs.trigger_user }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          COMMENT_URL: ${{ github.event.comment.html_url }}
         run: |
           python3 - <<'EOF'
           import json
@@ -63,8 +75,8 @@ jobs:
               os.environ['RABBITMQ_PASSWORD']
           )
           parameters = pika.ConnectionParameters(
-              host=os.environ.get('RABBITMQ_HOST', 'localhost'),
-              port=int(os.environ.get('RABBITMQ_PORT', '5672')),
+              host=os.environ.get('RABBITMQ_HOST') or 'localhost',
+              port=int(os.environ.get('RABBITMQ_PORT') or '5672'),
               credentials=credentials,
               virtual_host="/"
           )
@@ -72,27 +84,27 @@ jobs:
           connection = pika.BlockingConnection(parameters)
           channel = connection.channel()
 
-          queue = os.environ.get('RABBITMQ_QUEUE', 'agent-tasks')
+          queue = os.environ.get('RABBITMQ_QUEUE') or 'agent-tasks'
           channel.queue_declare(queue=queue, durable=True)
 
-          # Build message
+          # Build message from environment variables (safe for multiline content)
           message = {
-              "repo_url": "${{ steps.extract.outputs.repo_url }}",
-              "pr_number": int("${{ steps.extract.outputs.pr_number }}"),
-              "pr_branch": "${{ steps.pr_details.outputs.pr_branch }}",
-              "pr_title": "${{ steps.pr_details.outputs.pr_title }}",
-              "base_branch": "${{ steps.pr_details.outputs.pr_base_branch }}",
-              "refine_request": "${{ steps.extract.outputs.refine_request }}",
+              "repo_url": os.environ['REPO_URL'],
+              "pr_number": os.environ['PR_NUMBER'],
+              "pr_branch": os.environ['PR_BRANCH'],
+              "pr_title": os.environ['PR_TITLE'],
+              "base_branch": os.environ['BASE_BRANCH'],
+              "refine_request": os.environ['REFINE_REQUEST'],
               "mode": "refine",
-              "trigger_user": "${{ steps.extract.outputs.trigger_user }}",
-              "comment_id": ${{ github.event.comment.id }},
-              "comment_url": "${{ github.event.comment.html_url }}"
+              "trigger_user": os.environ['TRIGGER_USER'],
+              "comment_id": os.environ['COMMENT_ID'],
+              "comment_url": os.environ['COMMENT_URL']
           }
 
           print(f"📤 Publishing refine request to RabbitMQ...")
           print(f"   PR: #{message['pr_number']} - {message['pr_title']}")
           print(f"   Branch: {message['pr_branch']}")
-          print(f"   Request: {message['refine_request']}")
+          print(f"   Request: {message['refine_request'][:100]}...")
           print(f"   User: {message['trigger_user']}")
 
           channel.basic_publish(
