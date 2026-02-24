@@ -1,0 +1,119 @@
+name: AI Agent - Refine PR
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  process-refine-command:
+    # Only run if:
+    # 1. The comment is on a PR (not a regular issue)
+    # 2. The comment starts with "/refine"
+    if: |
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/refine')
+
+    # TODO: It should runs on Github Runner when the agent be deployed on cloud
+    runs-on: self-hosted
+
+    steps:
+      - name: Extract refine request
+        id: extract
+        run: |
+          # Extract text after "/refine"
+          COMMENT_BODY="${{ github.event.comment.body }}"
+          REFINE_REQUEST=$(echo "$COMMENT_BODY" | sed 's/^\/refine//' | xargs)
+
+          echo "refine_request=$REFINE_REQUEST" >> $GITHUB_OUTPUT
+          echo "pr_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+          echo "repo_url=${{ github.event.repository.html_url }}" >> $GITHUB_OUTPUT
+          echo "trigger_user=${{ github.event.comment.user.login }}" >> $GITHUB_OUTPUT
+
+      - name: Get PR details
+        id: pr_details
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: ${{ github.event.issue.number }}
+            });
+
+            core.setOutput('pr_branch', pr.data.head.ref);
+            core.setOutput('pr_title', pr.data.title);
+            core.setOutput('pr_base_branch', pr.data.base.ref);
+
+      - name: Publish to RabbitMQ
+        env:
+          RABBITMQ_HOST: ${{ secrets.RABBITMQ_HOST }}
+          RABBITMQ_PORT: ${{ secrets.RABBITMQ_PORT }}
+          RABBITMQ_USER: ${{ secrets.RABBITMQ_USER }}
+          RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
+          RABBITMQ_QUEUE: ${{ secrets.RABBITMQ_QUEUE }}
+        run: |
+          python3 - <<'EOF'
+          import json
+          import os
+          import pika
+
+          # RabbitMQ connection
+          credentials = pika.PlainCredentials(
+              os.environ['RABBITMQ_USER'],
+              os.environ['RABBITMQ_PASSWORD']
+          )
+          parameters = pika.ConnectionParameters(
+              host=os.environ.get('RABBITMQ_HOST', 'localhost'),
+              port=int(os.environ.get('RABBITMQ_PORT', '5672')),
+              credentials=credentials,
+              virtual_host="/"
+          )
+
+          connection = pika.BlockingConnection(parameters)
+          channel = connection.channel()
+
+          queue = os.environ.get('RABBITMQ_QUEUE', 'agent-tasks')
+          channel.queue_declare(queue=queue, durable=True)
+
+          # Build message
+          message = {
+              "repo_url": "${{ steps.extract.outputs.repo_url }}",
+              "pr_number": int("${{ steps.extract.outputs.pr_number }}"),
+              "pr_branch": "${{ steps.pr_details.outputs.pr_branch }}",
+              "pr_title": "${{ steps.pr_details.outputs.pr_title }}",
+              "base_branch": "${{ steps.pr_details.outputs.pr_base_branch }}",
+              "refine_request": "${{ steps.extract.outputs.refine_request }}",
+              "mode": "refine",
+              "trigger_user": "${{ steps.extract.outputs.trigger_user }}",
+              "comment_id": ${{ github.event.comment.id }},
+              "comment_url": "${{ github.event.comment.html_url }}"
+          }
+
+          print(f"📤 Publishing refine request to RabbitMQ...")
+          print(f"   PR: #{message['pr_number']} - {message['pr_title']}")
+          print(f"   Branch: {message['pr_branch']}")
+          print(f"   Request: {message['refine_request']}")
+          print(f"   User: {message['trigger_user']}")
+
+          channel.basic_publish(
+              exchange="",
+              routing_key=queue,
+              body=json.dumps(message),
+              properties=pika.BasicProperties(delivery_mode=2)
+          )
+
+          connection.close()
+          print("✅ Message published successfully!")
+          EOF
+
+      - name: React to comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Add "eyes" reaction to confirm receipt
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: ${{ github.event.comment.id }},
+              content: 'eyes'
+            });
