@@ -263,3 +263,29 @@ class GitHandler:
         _walk_tree(repo_path)
 
         return "\n".join(tree_lines)
+
+    def change_branch(self, repo_path: Path, branch_name: str) -> None:
+        """
+        Change to a specific branch
+
+        Args:
+            repo_path: Path to git repository
+            branch_name: Name of branch to move
+
+        Raises:
+            subprocess.CalledProcessError: If git checkout fails
+        """
+        self.log.info("moving_branch", msg="Move to branch", branch=branch_name)
+
+        try:
+            subprocess.run(
+                ["git", "checkout", branch_name],
+                cwd=repo_path,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.log.info("moving_branch", msg="Move to branch", branch=branch_name)
+        except subprocess.CalledProcessError as e:
+            self.log.error("branch_failed", msg="Failed to move branch", error=e.stderr)
+            raise

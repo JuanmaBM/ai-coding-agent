@@ -51,9 +51,7 @@ class GitHubClient:
         try:
             return self.client.get_repo(full_name)
         except GithubException as e:
-            self.log.error(
-                "repo_fetch_failed", msg="Failed to fetch repo", error=str(e)
-            )
+            self.log.error("repo_fetch_failed", msg="Failed to fetch repo", error=str(e))
             raise
 
     def get_issue(self, repo: Repository, issue_id: int) -> Issue:
@@ -72,9 +70,7 @@ class GitHubClient:
         try:
             return repo.get_issue(issue_id)
         except GithubException as e:
-            self.log.error(
-                "issue_fetch_failed", msg="Failed to fetch issue", error=str(e)
-            )
+            self.log.error("issue_fetch_failed", msg="Failed to fetch issue", error=str(e))
             raise
 
     def get_issue_data(self, issue: Issue) -> Dict[str, Any]:
@@ -133,17 +129,13 @@ class GitHubClient:
         )
 
         try:
-            pr = repo.create_pull(
-                title=title, body=body, head=head, base=base, draft=draft
-            )
+            pr = repo.create_pull(title=title, body=body, head=head, base=base, draft=draft)
 
             self.log.info("pr_created", msg="Pull request created", pr_number=pr.number)
             return pr
 
         except GithubException as e:
-            self.log.error(
-                "pr_creation_failed", msg="Failed to create PR", error=str(e)
-            )
+            self.log.error("pr_creation_failed", msg="Failed to create PR", error=str(e))
             raise
 
     def add_pr_comment(self, pr: PullRequest, comment: str) -> None:
@@ -171,9 +163,7 @@ class GitHubClient:
             issue: Issue object
             comment: Comment text
         """
-        self.log.info(
-            "adding_comment", msg="Adding comment to issue", issue_number=issue.number
-        )
+        self.log.info("adding_comment", msg="Adding comment to issue", issue_number=issue.number)
 
         try:
             issue.create_comment(comment)
@@ -197,4 +187,30 @@ class GitHubClient:
             self.log.info("labels_added", msg="Labels added")
         except GithubException as e:
             self.log.error("labels_failed", msg="Failed to add labels", error=str(e))
+            raise
+
+    def add_comment_reaction(
+        self, issue: Issue, comment_id: int, reaction: str = "rocket"
+    ) -> None:
+        """
+        Add reaction to a comment.
+
+        Args:
+            issue: Issue object (PRs are also issues in GitHub)
+            comment_id: Comment ID
+            reaction: Reaction type (+1, -1, laugh, confused, heart, hooray, rocket, eyes)
+        """
+        self.log.info(
+            "adding_reaction",
+            msg="Adding reaction to comment",
+            comment_id=comment_id,
+            reaction=reaction,
+        )
+
+        try:
+            comment = issue.get_comment(comment_id)
+            comment.create_reaction(reaction)
+            self.log.info("reaction_added", msg="Reaction added successfully")
+        except GithubException as e:
+            self.log.error("reaction_failed", msg="Failed to add reaction", error=str(e))
             raise

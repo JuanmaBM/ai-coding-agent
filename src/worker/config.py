@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     llm_provider: str = "ollama"
     llm_model: str = "qwen2.5-coder:14b"
     ollama_base_url: str = "http://localhost:11434"
+    llm_api_key: str = "ollama"
 
     @property
     def rabbitmq_url(self) -> str:

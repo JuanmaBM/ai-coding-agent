@@ -48,17 +48,23 @@ async def process_task(message: TaskMessage) -> None:
     Args:
         message: Task message containing repo_url, issue_id, mode, and trigger_user
     """
-    log = logger.bind(
-        repo_url=str(message.repo_url),
-        issue_id=message.issue_id,
-        mode=message.mode.value,
-        trigger_user=message.trigger_user,
-    )
+    # Build log context based on mode
+    log_context = {
+        "repo_url": str(message.repo_url),
+        "mode": message.mode.value,
+        "trigger_user": message.trigger_user,
+    }
 
+    # Add mode-specific fields
+    if message.mode == TaskMode.QUICKFIX and message.issue_id:
+        log_context["issue_id"] = message.issue_id
+    elif message.mode == TaskMode.REFINE and message.pr_number:
+        log_context["pr_number"] = message.pr_number
+
+    log = logger.bind(**log_context)
     log.info("task_received", msg="Starting task processing")
 
     try:
-        # Route to appropriate mode
         if message.mode == TaskMode.QUICKFIX:
             from worker.modes.quickfix_mode import QuickFixMode
 
@@ -70,7 +76,14 @@ async def process_task(message: TaskMessage) -> None:
             await quickfix_mode.execute(message)
 
         elif message.mode == TaskMode.REFINE:
-            log.warning("mode_not_implemented", msg="Refine mode not yet implemented")
+            from worker.modes.refine_mode import RefineMode
+
+            refine_mode = RefineMode(
+                git_handler=git_handler,
+                git_client=git_client,
+                llm_client=llm_client,
+            )
+            await refine_mode.execute(message)
 
         else:
             log.error("unknown_mode", msg="Unknown task mode", mode=message.mode)

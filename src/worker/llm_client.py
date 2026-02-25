@@ -39,9 +39,13 @@ class LLMClient:
             timeout=httpx.Timeout(900, connect=10), follow_redirects=True
         )
 
-    async def _call_aider(self, prompt: str, repo_path: str, allow_commits: bool = False):
+    async def _call_aider(self, prompt: str, repo_path: str):
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"  # Force Python to flush logs immediately
+
+        # Configure OpenAI-compatible endpoint pointing to Ollama
+        env["OPENAI_API_KEY"] = settings.llm_api_key
+        env["OPENAI_API_BASE"] = f"{settings.ollama_base_url}/v1"
 
         model_cmd = f"openai/{settings.llm_model}"
 
@@ -53,6 +57,7 @@ class LLMClient:
             model_cmd,
             "--yes",
             "--no-detect-urls",
+            "--no-check-update",
             "--message",
             prompt,
         ]
@@ -89,8 +94,8 @@ class LLMClient:
         Generate code implementation for an issue.
 
         Args:
-            context: Full context (issue + code)
-            issue_data: Issue metadata
+            issue_data: Issue metadata (number, title, body)
+            repo_path: Path to the repository
 
         Returns:
             Generated code as formatted string
@@ -107,8 +112,31 @@ class LLMClient:
 
         self.log.info("code_generated", msg="LLM code received")
 
+    async def refine_code(self, refine_request: str, repo_path: str):
+        """
+        Refine existing code based on user feedback.
+
+        Args:
+            refine_request: User's refinement request describing desired changes
+            repo_path: Path to the repository
+
+        Returns:
+            None (changes are made directly to the repository)
+        """
+        prompt = self._build_refine_prompt(refine_request)
+
+        self.log.info(
+            "refining_code",
+            msg="Requesting code refinement from LLM",
+            request_preview=refine_request[:100],
+        )
+
+        await self._call_aider(prompt, repo_path)
+
+        self.log.info("code_refined", msg="LLM refinement completed")
+
     def _build_code_prompt(self, issue_data: Dict[str, Any]) -> str:
-        """Build prompt for code generation."""
+        """Build prompt for code generation from an issue."""
         return f"""You are an expert software engineer. Implement a complete solution for this issue.
 
 ## Your Task
@@ -124,6 +152,27 @@ Implement a solution for issue #{issue_data.get("number")}: {issue_data.get("tit
 - Handle edge cases
 - Keep changes minimal and focused
 - Make sure the code is syntactically correct
+"""
+
+    def _build_refine_prompt(self, refine_request: str) -> str:
+        """Build prompt for code refinement based on user feedback."""
+        return f"""You are an expert software engineer. A reviewer has requested changes to this pull request.
+
+## Refinement Request
+
+{refine_request}
+
+## Your Task
+
+Make the necessary changes to satisfy the reviewer's request. Analyze the existing code and apply the requested modifications.
+
+**Guidelines:**
+- Understand the intent behind the refinement request
+- Only modify files relevant to the requested changes
+- Ensure code follows existing style and conventions
+- Keep changes focused on addressing the specific feedback
+- Make sure the code is syntactically correct
+- Preserve existing functionality unless explicitly asked to change it
 """
 
     async def close(self):
