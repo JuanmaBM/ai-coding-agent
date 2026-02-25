@@ -23,15 +23,25 @@ Automatically generates code and creates a PR for the issue.
 4. Commits, pushes, and opens a Pull Request.
 5. Posts a comment on the issue linking to the PR.
 
-### Refine Mode *(In Progress)*
+### Refine Mode
 
 Allows reviewers to request changes on an agent-created PR using a `/refine` command.
 
+**Trigger:** A reviewer comments `/refine <description of changes>` on any PR.
+
 **Workflow:**
-1. A reviewer comments `/refine <description of changes>` on the PR.
-2. The agent picks up the refinement request.
-3. Aider applies the requested changes to the existing branch.
-4. Pushes the updated code to the same PR.
+1. The webhook sends a `refine` task to RabbitMQ with the PR branch, comment ID, and refinement request.
+2. Worker shallow-clones the repository directly on the PR branch.
+3. Aider + LLM applies the requested changes to the existing code.
+4. Pushes the updated commits to the same PR branch.
+5. Adds a 🚀 reaction to the `/refine` comment to confirm completion.
+
+**Required message fields:** `repo_url`, `pr_number`, `pr_branch`, `refine_request`, `comment_id`.
+
+**Example `/refine` comment:**
+```
+/refine Add input validation to the create_user endpoint and return 400 on invalid email
+```
 
 ## Architecture
 
@@ -39,11 +49,12 @@ The architecture is **stateless** and **event-driven**.
 
 ```mermaid
 graph TD
-    A[GitHub Issue] -->|Trigger| B[RabbitMQ Queue]
+    A[GitHub Issue] -->|QuickFix trigger| B[RabbitMQ Queue]
+    G[PR /refine comment] -->|Refine trigger| B
     B -->|KEDA scales 0→N| C[Worker Pod]
     C -->|Clone| D[Repository]
     C -->|Aider| E[LLM Provider]
-    C -->|Create PR| F[GitHub API]
+    C -->|Create PR / Push| F[GitHub API]
 ```
 
 ### Design Principles
@@ -93,20 +104,34 @@ ai-coding-agent/
     │   ├── git_handler.py      # Git operations (clone, branch, push)
     │   └── github_client.py    # GitHub API client
     └── modes/
-        └── quickfix_mode.py    # QuickFix workflow orchestrator
+        ├── quickfix_mode.py    # QuickFix workflow orchestrator
+        └── refine_mode.py      # Refine workflow orchestrator
 ```
 
 ## Worker Execution Flow
 
+### QuickFix Mode
+
 1. **Consume** — Worker claims a message from RabbitMQ.
-2. **Clone** — Shallow clone (`depth=1`) of the target repository.
+2. **Clone** — Shallow clone (`depth=1`) of the target repository on `main`.
 3. **Fetch Issue** — Read issue details from GitHub API.
-4. **Generate Code** — Aider analyzes the repo and generates changes using the configured LLM.
-5. **Push** — Commit and push changes to a new branch.
-6. **Create PR** — Open a pull request with the fix.
-7. **Comment** — Post a comment on the issue linking to the PR.
-8. **Cleanup** — Delete temporary workspace.
-9. **ACK** — Acknowledge message to RabbitMQ.
+4. **Branch** — Create a new branch `ai-agent/quickfix-issue-{id}`.
+5. **Generate Code** — Aider analyzes the repo and generates changes using the configured LLM.
+6. **Push** — Commit and push changes to the new branch.
+7. **Create PR** — Open a pull request with the fix.
+8. **Comment** — Post a comment on the issue linking to the PR.
+9. **Cleanup** — Delete temporary workspace.
+10. **ACK** — Acknowledge message to RabbitMQ.
+
+### Refine Mode
+
+1. **Consume** — Worker claims a refinement message from RabbitMQ.
+2. **Clone** — Shallow clone (`depth=1`) directly on the PR branch.
+3. **Refine Code** — Aider applies the requested changes using the LLM.
+4. **Push** — Push new commits to the existing PR branch.
+5. **React** — Add a 🚀 reaction to the `/refine` comment to signal completion.
+6. **Cleanup** — Delete temporary workspace.
+7. **ACK** — Acknowledge message to RabbitMQ.
 
 ## Security
 
@@ -129,7 +154,7 @@ The agent supports any LLM provider through Aider: OpenAI, Anthropic, Ollama, an
 - [x] GitHub API integration (issues, PRs, comments)
 - [x] LLM integration via Aider + Ollama
 - [x] QuickFix Mode (end-to-end)
-- [ ] Refine Mode (`/refine` command on PRs)
+- [x] Refine Mode (`/refine` command on PRs)
 - [ ] GitHub webhook integration (automatic issue detection)
 - [ ] CI/CD pipeline
 - [ ] Helm chart

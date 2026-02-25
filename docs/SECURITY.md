@@ -85,3 +85,4 @@ This directory is:
 | Queue poisoning | Message validation with Pydantic models |
 | Denial of service | KEDA `maxReplicaCount: 10` limits pod scaling |
 
+

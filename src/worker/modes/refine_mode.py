@@ -1,3 +1,11 @@
+"""Refine Mode implementation - Iterative code refinement from PR review comments.
+
+This mode allows users to request changes on an existing pull request by
+commenting with a /refine command. The workflow clones the PR branch, applies
+the requested modifications using an LLM, pushes the changes, and reacts to
+the original comment to confirm completion.
+"""
+
 import structlog
 
 from worker.config import settings
@@ -10,20 +18,51 @@ logger = structlog.get_logger()
 
 
 class RefineMode:
+    """Orchestrate Refine Mode workflow.
+
+    Handles iterative code refinement based on PR review feedback.
+    Clones the PR branch, applies LLM-driven changes, and pushes
+    the result back to the same branch.
+    """
+
     def __init__(
         self,
         git_handler: GitHandler,
         git_client: GitClient,
         llm_client: LLMClient,
     ):
-        """Initialize Refine Mode handler."""
+        """
+        Initialize Refine Mode handler.
+
+        Args:
+            git_handler: Handler for git operations (clone, push, cleanup).
+            git_client: Client for GitHub API interactions.
+            llm_client: Client for LLM-powered code generation.
+        """
         self.log = logger.bind(mode="refine")
         self.git_handler = git_handler
         self.git = git_client
         self.llm_client = llm_client
 
     async def execute(self, task: TaskMessage) -> None:
-        """Execute Refine Mode workflow."""
+        """
+        Execute Refine Mode workflow.
+
+        Performs the following steps:
+            1. Clones the repository on the PR branch.
+            2. Applies code refinements using the LLM based on the user's request.
+            3. Pushes the updated code to the PR branch.
+            4. Adds a rocket reaction to the triggering comment.
+
+        Args:
+            task: Task message containing repo_url, pr_number, pr_branch,
+                  refine_request, and comment_id.
+
+        Raises:
+            ValueError: If required fields (pr_number, pr_branch, comment_id)
+                        are missing from the task.
+            Exception: If any step in the workflow fails.
+        """
         # Validate required fields
         if not task.pr_number:
             raise ValueError("pr_number is required for Refine mode")
