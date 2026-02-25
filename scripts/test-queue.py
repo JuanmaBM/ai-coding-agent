@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
-"""
-Test script to publish messages to RabbitMQ and validate KEDA scaling.
-
-Usage:
-    python test-queue.py --count 5 --delay 2
-"""
+"""Publish test messages to RabbitMQ for KEDA scaling validation"""
 
 import argparse
 import json
-import time
 import pika
 import sys
+import structlog
 
+logger = structlog.get_logger()
 
 def publish_test_messages(
     host: str = "localhost",
@@ -22,18 +18,7 @@ def publish_test_messages(
     count: int = 1,
     delay: float = 0
 ):
-    """
-    Publish test messages to RabbitMQ queue.
-    
-    Args:
-        host: RabbitMQ host
-        port: RabbitMQ port
-        username: RabbitMQ username
-        password: RabbitMQ password
-        queue: Queue name
-        count: Number of messages to send
-        delay: Delay in seconds between messages
-    """
+    """Publish test messages to RabbitMQ."""
     credentials = pika.PlainCredentials(username, password)
     parameters = pika.ConnectionParameters(
         host=host,
@@ -46,39 +31,33 @@ def publish_test_messages(
         connection = pika.BlockingConnection(parameters)
         channel = connection.channel()
         
-        # Declare queue (idempotent)
         channel.queue_declare(queue=queue, durable=True)
-        
-        print(f"📤 Publishing {count} message(s) to queue '{queue}'...\n")
         
         for i in range(count):
             message = {
-                "repo_url": "https://github.com/example/test-repo",
-                "issue_id": 42 + i,
+                "repo_url": f"https://github.com/test/repo-{i}",
+                "issue_id": i + 1,
                 "mode": "plan",
                 "trigger_user": "test-script"
             }
             
+            print(f"📤 Publishing test message {i+1}/{count}...")
             channel.basic_publish(
                 exchange="",
                 routing_key=queue,
                 body=json.dumps(message),
-                properties=pika.BasicProperties(
-                    delivery_mode=2,  # Make message persistent
-                    content_type="application/json"
-                )
+                properties=pika.BasicProperties(delivery_mode=2)
             )
             
-            print(f"✅ Message {i+1}/{count} published: issue_id={message['issue_id']}")
-            
-            if delay > 0 and i < count - 1:
+            if delay > 0:
                 time.sleep(delay)
         
         connection.close()
-        print(f"\n🎉 Successfully published {count} message(s)!")
-        print(f"\n📊 Monitor KEDA scaling with:")
-        print(f"   kubectl get pods -n ai-agent -w")
         
+        print(f"✅ {count} messages published!")
+        print(f"\n📊 Monitor with:")
+        print(f"   kubectl get pods -n ai-agent -w")
+    
     except pika.exceptions.AMQPConnectionError as e:
         print(f"❌ Failed to connect to RabbitMQ: {e}", file=sys.stderr)
         print(f"\n💡 Tip: Make sure RabbitMQ is running and accessible at {host}:{port}")
@@ -91,6 +70,7 @@ def publish_test_messages(
 
 
 def main():
+    logger.info("Script created by agent code")
     parser = argparse.ArgumentParser(
         description="Publish test messages to RabbitMQ for KEDA scaling validation"
     )
@@ -148,4 +128,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

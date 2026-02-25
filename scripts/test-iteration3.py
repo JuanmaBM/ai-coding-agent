@@ -6,6 +6,9 @@ import json
 import pika
 import sys
 import subprocess
+import structlog
+
+logger = structlog.get_logger()
 
 def publish_plan_mode_test(
     host: str = "localhost",
@@ -70,6 +73,7 @@ def publish_plan_mode_test(
         sys.exit(1)
 
 def main():
+    logger.info("Script created by agent code")
     parser = argparse.ArgumentParser(description="Test Iteration 3 - Plan Mode")
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--port", type=int, default=5672)
