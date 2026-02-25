@@ -6,6 +6,7 @@ import json
 import pika
 import sys
 import structlog
+import time  # Import the time module
 
 logger = structlog.get_logger()
 
